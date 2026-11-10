@@ -111,6 +111,9 @@ def build_router(database: db_module.Database) -> Router:
 
         file_id = message.photo[-1].file_id
         order_id = database.create_order(message.from_user.id, operator, price, phone, file_id)
+        qr_path = await services.store_qr_file(message.bot, file_id, order_id)
+        if qr_path:
+            database.set_order_qr_path(order_id, qr_path)
         await state.clear()
 
         await message.answer(

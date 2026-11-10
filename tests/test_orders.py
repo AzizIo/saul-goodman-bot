@@ -132,13 +132,46 @@ def test_old_orders_excluded_from_24h(database, active_user):
 def test_cleanup_releases_qr(tmp_path):
     from bot.db import Database
 
-    if True:
-        db = Database(tmp_path / "c.db")
-        db.init()
-        db.create_user(1, None)
-        oid = db.create_order(1, "Beeline", 150, "+79001234567", "secret-file")
-        assert db.cleanup_old_orders(7) == 0  # свежий заказ не трогаем
-        with db.tx() as conn:
-            conn.execute("UPDATE orders SET created_at = '2000-01-01T00:00:00+00:00' WHERE id = ?", (oid,))
-        assert db.cleanup_old_orders(7) == 1
-        assert db.get_order(oid)["file_id"] is None
+    db = Database(tmp_path / "c.db")
+    db.init()
+    db.create_user(1, None)
+
+    fresh = db.create_order(1, "Beeline", 150, "+79001234567", "secret-file")
+    stale = db.create_order(1, "Beeline", 150, "+79001112233", "secret-file-2")
+    db.set_order_qr_path(stale, str(tmp_path / "qr-order.jpg"))
+
+    assert db.cleanup_old_orders(7) == []  # свежий заказ не трогаем
+
+    with db.tx() as conn:
+        conn.execute("UPDATE orders SET created_at = '2000-01-01T00:00:00+00:00' WHERE id = ?", (stale,))
+
+    paths = db.cleanup_old_orders(7)
+    assert paths == [str(tmp_path / "qr-order.jpg")]
+    assert db.get_order(stale)["file_id"] is None
+    assert db.get_order(stale)["qr_path"] is None
+    assert db.get_order(fresh)["file_id"] == "secret-file"
+
+
+def test_qr_files_removed_from_disk(tmp_path, monkeypatch):
+    import config
+    from bot import services
+
+    monkeypatch.setattr(config, "QR_STORE_FILES", True)
+    monkeypatch.setattr(config, "QR_DIR", tmp_path / "qr")
+
+    qr = tmp_path / "qr" / "order-9.jpg"
+    qr.parent.mkdir(parents=True)
+    qr.write_bytes(b"jpeg")
+    assert services.remove_qr_files([str(qr)]) == 1
+    assert not qr.exists()
+    assert services.remove_qr_files([str(qr)]) == 1  # повторно — не падает
+
+
+def test_store_qr_disabled_by_default(monkeypatch):
+    import config
+    from bot import services
+    import asyncio
+
+    monkeypatch.setattr(config, "QR_STORE_FILES", False)
+    # без сети и без записи на диск: выключенная настройка → None
+    assert asyncio.run(services.store_qr_file(None, "file-id", 1)) is None

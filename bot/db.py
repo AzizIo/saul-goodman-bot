@@ -29,10 +29,7 @@ WITHDRAW_PAID = "paid"
 WITHDRAW_REJECTED = "rejected"
 
 TX_EARNING = "earning"
-TX_WITHDRAW_HOLD = "withdraw_hold"
 TX_WITHDRAW_PAID = "withdraw_paid"
-TX_WITHDRAW_RELEASE = "withdraw_release"
-TX_ADJUST = "adjust"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -54,6 +51,7 @@ CREATE TABLE IF NOT EXISTS orders (
     fail_reason TEXT,
     date        TEXT    NOT NULL,
     file_id     TEXT,
+    qr_path     TEXT,
     created_at  TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user   ON orders(user_id);
@@ -152,6 +150,14 @@ class Database:
     def init(self) -> None:
         with self.session() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Догоняющие ALTER TABLE: база не должна требовать ручной правки."""
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
+        if "qr_path" not in columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN qr_path TEXT")
 
     # --- пользователи -----------------------------------------------------
 
@@ -229,18 +235,29 @@ class Database:
     # --- заказы -----------------------------------------------------------
 
     def create_order(
-        self, user_id: int, operator: str, price_cents: int, phone: str, file_id: str | None
+        self,
+        user_id: int,
+        operator: str,
+        price_cents: int,
+        phone: str,
+        file_id: str | None,
+        qr_path: str | None = None,
     ) -> int:
         with self.tx() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO orders (user_id, operator, price, phone, status, date, file_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orders
+                    (user_id, operator, price, phone, status, date, file_id, qr_path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (user_id, operator, price_cents, phone, ORDER_PENDING,
-                 now_iso(), file_id, now_iso()),
+                 now_iso(), file_id, qr_path, now_iso()),
             )
             return int(cur.lastrowid)
+
+    def set_order_qr_path(self, order_id: int, qr_path: str) -> None:
+        with self.tx() as conn:
+            conn.execute("UPDATE orders SET qr_path = ? WHERE id = ?", (qr_path, order_id))
 
     def get_order(self, order_id: int) -> sqlite3.Row | None:
         with self.session() as conn:
@@ -491,12 +508,24 @@ class Database:
                 (operator, 1 if is_open else 0),
             )
 
-    def cleanup_old_orders(self, days: int) -> int:
-        """Удаляет file_id у старых заказов: QR-секреты не храним дольше срока."""
+    def cleanup_old_orders(self, days: int) -> list[str]:
+        """Обнуляет file_id и отдаёт пути локальных QR-файлов на удаление.
+
+        Возвращает список файлов, которые вызывающий код удаляет с диска:
+        срок хранения QR/eSIM ограничен (QR_RETENTION_DAYS).
+        """
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
         with self.tx() as conn:
-            cur = conn.execute(
-                "UPDATE orders SET file_id = NULL WHERE file_id IS NOT NULL AND created_at < ?",
+            paths = [
+                row["qr_path"]
+                for row in conn.execute(
+                    "SELECT qr_path FROM orders WHERE qr_path IS NOT NULL AND created_at < ?",
+                    (cutoff,),
+                )
+            ]
+            conn.execute(
+                "UPDATE orders SET file_id = NULL, qr_path = NULL "
+                "WHERE (file_id IS NOT NULL OR qr_path IS NOT NULL) AND created_at < ?",
                 (cutoff,),
             )
-            return cur.rowcount
+            return paths

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from aiogram import Bot
@@ -11,6 +12,38 @@ from aiogram.types import Message
 import config
 
 log = logging.getLogger("saul")
+
+
+async def store_qr_file(bot: Bot, file_id: str, order_id: int) -> str | None:
+    """Сохраняет QR локально, если включён ``QR_STORE_FILES``.
+
+    По умолчанию выключено: QR/eSIM — потенциальный секрет активации,
+    и бот обходится file_id Telegram. При включении файлы пишутся с правами
+    владельца только (0600) и удаляются планировщиком через QR_RETENTION_DAYS.
+    """
+    if not config.QR_STORE_FILES:
+        return None
+    try:
+        config.QR_DIR.mkdir(parents=True, exist_ok=True)
+        target = config.QR_DIR / f"order-{order_id}.jpg"
+        await bot.download(file_id, destination=target)
+        target.chmod(0o600)
+        return str(target)
+    except Exception as exc:  # noqa: BLE001 — не роняем приём заказа из-за диска
+        log.warning("не удалось сохранить QR заказа %s: %s", order_id, exc)
+        return None
+
+
+def remove_qr_files(paths: list[str]) -> int:
+    """Удаляет QR-файлы, у которых истёк срок хранения. Возвращает число удалённых."""
+    removed = 0
+    for raw in paths:
+        try:
+            Path(raw).unlink(missing_ok=True)
+            removed += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("не удалось удалить %s: %s", raw, exc)
+    return removed
 
 
 async def safe_edit(message: Message, text: str, reply_markup=None) -> None:

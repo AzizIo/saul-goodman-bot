@@ -16,6 +16,7 @@ from aiogram.types import BotCommand
 
 import config
 from bot import db as db_module
+from bot import services
 from bot.handlers import build_router
 
 log = logging.getLogger("saul")
@@ -35,9 +36,9 @@ async def cleanup_loop(database: db_module.Database) -> None:
     """Суточная гигиена: QR-секреты не хранятся дольше QR_RETENTION_DAYS."""
     while True:
         try:
-            removed = database.cleanup_old_orders(config.QR_RETENTION_DAYS)
-            if removed:
-                log.info("очищены file_id у %s старых заказов", removed)
+            paths = database.cleanup_old_orders(config.QR_RETENTION_DAYS)
+            if paths:
+                log.info("удалено QR-файлов по сроку хранения: %s", services.remove_qr_files(paths))
         except Exception as exc:  # noqa: BLE001
             log.warning("ошибка очистки: %s", exc)
         await asyncio.sleep(24 * 60 * 60)
@@ -84,6 +85,8 @@ async def main() -> None:
         await bot.session.close()
         raise SystemExit(1)
 
+    # если бот раньше работал через webhook, long polling без сброса зависнет
+    await bot.delete_webhook(drop_pending_updates=False)
     await set_commands(bot)
     cleaner = asyncio.create_task(cleanup_loop(database))
     log.info("запущен %s (@%s)", config.BRAND, me.username)
