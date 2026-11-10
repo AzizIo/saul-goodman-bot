@@ -1,0 +1,27 @@
+[Unit]
+Description=Saul Goodman Telegram bot ⚖️
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=saul
+Group=saul
+WorkingDirectory=/opt/saul-goodman-bot
+EnvironmentFile=/opt/saul-goodman-bot/.env
+ExecStart=/opt/saul-goodman-bot/.venv/bin/python main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=saul-bot
+
+# Минимальные привилегии
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/saul-goodman-bot/data
+
+[Install]
+WantedBy=multi-user.target

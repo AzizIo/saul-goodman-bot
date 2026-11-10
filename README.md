@@ -3,6 +3,18 @@
 > **Your business. Your rules.**  
 > Приватный Telegram-бот для приёма eSIM QR, управления заказами, учёта заработка, выплат и поддержки пользователей.
 
+## Быстрый старт
+
+```bash
+cp .env.example .env   # BOT_TOKEN, ADMIN_ID, CHANNEL_ID
+docker compose up -d --build
+docker compose logs -f
+```
+
+Без Docker: `pip install -r requirements.txt && python main.py`.
+Подробности — [docs/DEPLOY.md](docs/DEPLOY.md), принятые решения —
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Содержание
 
 - [Общая информация](#общая-информация)

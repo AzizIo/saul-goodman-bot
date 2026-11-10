@@ -1,0 +1,30 @@
+# Секреты
+.env
+.env.*
+!.env.example
+
+# Данные и артефакты
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/qr/
+data/*.sqlite3
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Редакторы / ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
