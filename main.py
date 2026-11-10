@@ -74,9 +74,18 @@ async def main() -> None:
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(build_router(database))
 
+    # сначала рукопожатие: неверный токен или закрытая сеть видны сразу,
+    # а не после пяти попыток автоперезапуска под systemd
+    try:
+        me = await bot.get_me()
+    except Exception as exc:  # noqa: BLE001 — токен или сеть
+        log.error("не удалось связаться с Telegram: %s", exc)
+        log.error("проверь BOT_TOKEN и доступ в сеть (api.telegram.org:443)")
+        await bot.session.close()
+        raise SystemExit(1)
+
     await set_commands(bot)
     cleaner = asyncio.create_task(cleanup_loop(database))
-    me = await bot.get_me()
     log.info("запущен %s (@%s)", config.BRAND, me.username)
 
     try:
